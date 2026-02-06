@@ -1,5 +1,6 @@
 """
-Executor Agent - Executes planned steps and calls tools
+Executor Agent - actually runs the steps and calls the APIs
+Handles retries if something fails
 """
 from typing import Any, Dict, List
 from tools.base import BaseTool
@@ -7,7 +8,7 @@ from agents.planner import ExecutionPlan, ExecutionStep
 
 
 class StepResult:
-    """Result of executing a single step"""
+    """Stores what happened when we ran a step"""
     
     def __init__(self, step: ExecutionStep, success: bool, data: Any = None, error: str = None):
         self.step = step
@@ -16,7 +17,6 @@ class StepResult:
         self.error = error
     
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary"""
         return {
             "step_number": self.step.step_number,
             "tool_name": self.step.tool_name,
@@ -29,43 +29,31 @@ class StepResult:
 
 class ExecutorAgent:
     """
-    Executor Agent - Executes planned steps and manages tool calls
+    The worker - takes the plan and actually executes it
+    Calls the right tools with the right parameters
     """
     
     def __init__(self, available_tools: List[BaseTool]):
         self.tools = {tool.name: tool for tool in available_tools}
-        self.max_retries = 2
+        self.max_retries = 2  # Try twice if something fails
     
     def execute_plan(self, plan: ExecutionPlan) -> List[StepResult]:
         """
-        Execute all steps in the plan
-        
-        Args:
-            plan: Execution plan from Planner Agent
-            
-        Returns:
-            List of step results
+        Goes through each step in the plan and executes it
+        Keeps going even if some steps fail (so we can see partial results)
         """
         results = []
         
         for step in plan.steps:
             result = self._execute_step(step)
             results.append(result)
-            
-            # If a critical step fails, we might want to stop
-            # For now, we continue to gather all results
         
         return results
     
     def _execute_step(self, step: ExecutionStep) -> StepResult:
         """
-        Execute a single step with retry logic
-        
-        Args:
-            step: Execution step
-            
-        Returns:
-            Step result
+        Runs a single step - calls the tool with parameters
+        Has retry logic in case of transient failures
         """
         tool = self.tools.get(step.tool_name)
         
@@ -76,7 +64,7 @@ class ExecutorAgent:
                 error=f"Tool '{step.tool_name}' not found"
             )
         
-        # Try executing with retries
+        # Try a couple times in case it's a network hiccup
         last_error = None
         for attempt in range(self.max_retries):
             try:
@@ -90,7 +78,7 @@ class ExecutorAgent:
                     )
                 else:
                     last_error = result.get("error", "Unknown error")
-                    # If it's a client error (like invalid city), don't retry
+                    # Don't retry if it's a client error (like invalid city name)
                     if "not found" in last_error.lower():
                         break
             except Exception as e:
@@ -101,3 +89,4 @@ class ExecutorAgent:
             success=False,
             error=last_error or "Execution failed after retries"
         )
+

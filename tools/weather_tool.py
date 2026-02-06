@@ -1,5 +1,5 @@
 """
-OpenWeatherMap API Tool for weather information
+Weather tool - uses OpenWeatherMap API to get current weather
 """
 import os
 import requests
@@ -8,7 +8,7 @@ from .base import BaseTool
 
 
 class WeatherTool(BaseTool):
-    """Tool for fetching weather information"""
+    """Gets weather data for any city"""
     
     def __init__(self):
         self.api_key = os.getenv("OPENWEATHER_API_KEY")
@@ -44,16 +44,7 @@ class WeatherTool(BaseTool):
         }
     
     def execute(self, city: str, units: str = "metric") -> Dict[str, Any]:
-        """
-        Get current weather for a city
-        
-        Args:
-            city: City name
-            units: Temperature units (metric or imperial)
-            
-        Returns:
-            Dictionary with success status and weather data
-        """
+        """Calls the OpenWeatherMap API and returns weather data"""
         try:
             url = f"{self.base_url}/weather"
             params = {
@@ -67,7 +58,7 @@ class WeatherTool(BaseTool):
             
             data = response.json()
             
-            # Extract relevant information
+            # Pull out the useful info from the API response
             weather_info = {
                 "city": data["name"],
                 "country": data["sys"]["country"],
@@ -104,3 +95,4 @@ class WeatherTool(BaseTool):
                 "success": False,
                 "error": f"Unexpected error: {str(e)}"
             }
+

@@ -1,5 +1,6 @@
 """
-Planner Agent - Converts user input into structured execution plan
+Planner Agent - figures out what steps to take for a given task
+Uses LLM to break down user requests into actionable steps
 """
 from typing import Any, Dict, List
 from pydantic import BaseModel, Field
@@ -8,7 +9,6 @@ from tools.base import BaseTool
 
 
 class ExecutionStep(BaseModel):
-    """Single step in execution plan"""
     step_number: int = Field(description="Step number in sequence")
     tool_name: str = Field(description="Name of tool to use")
     parameters: Dict[str, Any] = Field(description="Parameters for tool execution")
@@ -16,7 +16,6 @@ class ExecutionStep(BaseModel):
 
 
 class ExecutionPlan(BaseModel):
-    """Complete execution plan"""
     task_summary: str = Field(description="Summary of the user's task")
     steps: List[ExecutionStep] = Field(description="Ordered list of execution steps")
     expected_output: str = Field(description="Description of expected final output")
@@ -24,7 +23,8 @@ class ExecutionPlan(BaseModel):
 
 class PlannerAgent:
     """
-    Planner Agent - Analyzes user request and creates structured execution plan
+    Takes a user's task and figures out how to execute it
+    Basically the "brain" that decides what tools to use and in what order
     """
     
     def __init__(self, llm_client: LLMClient, available_tools: List[BaseTool]):
@@ -34,27 +34,23 @@ class PlannerAgent:
     
     def create_plan(self, user_task: str) -> ExecutionPlan:
         """
-        Create execution plan from user task
-        
-        Args:
-            user_task: Natural language task description
-            
-        Returns:
-            Structured execution plan
+        Main method - takes user's task and creates a plan
+        Returns structured plan with steps and tool selections
         """
         system_prompt = self._build_system_prompt()
         user_prompt = self._build_user_prompt(user_task)
         
         try:
-            # Use LLM with structured output
+            # Ask the LLM to create a structured plan
+            # Using low temperature (0.3) so we get consistent, logical plans
             result = self.llm.generate_structured_output(
                 prompt=user_prompt,
                 system_prompt=system_prompt,
                 response_format=ExecutionPlan,
-                temperature=0.3  # Lower temperature for more deterministic planning
+                temperature=0.3
             )
             
-            # Validate plan
+            # Make sure the plan is valid
             plan = ExecutionPlan(**result)
             self._validate_plan(plan)
             
@@ -63,7 +59,7 @@ class PlannerAgent:
             raise Exception(f"Planning failed: {str(e)}")
     
     def _build_system_prompt(self) -> str:
-        """Build system prompt with tool descriptions"""
+        """Creates the system prompt with all available tools"""
         tools_description = "\n".join([
             f"- {tool['name']}: {tool['description']}\n  Parameters: {tool['parameters']}"
             for tool in self.tool_schemas
@@ -87,14 +83,15 @@ Instructions:
 Output a structured JSON plan following the ExecutionPlan schema."""
     
     def _build_user_prompt(self, user_task: str) -> str:
-        """Build user prompt"""
+        """Simple prompt with the user's task"""
         return f"""User Task: {user_task}
 
 Create a detailed execution plan to accomplish this task using the available tools.
 Break down the task into clear, sequential steps."""
     
     def _validate_plan(self, plan: ExecutionPlan) -> None:
-        """Validate that plan uses valid tools"""
+        """Quick check to make sure we're not trying to use tools that don't exist"""
         for step in plan.steps:
             if step.tool_name not in self.tools:
                 raise ValueError(f"Invalid tool in plan: {step.tool_name}")
+

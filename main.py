@@ -1,6 +1,6 @@
 """
-AI Operations Assistant - Main Application
-FastAPI server with multi-agent orchestration using Google Gemini
+Main FastAPI app - handles the multi-agent workflow
+Built this to orchestrate between planner, executor, and verifier agents
 """
 import os
 from typing import Dict, Any
@@ -13,17 +13,15 @@ from llm.client import LLMClient
 from tools import GitHubTool, WeatherTool, NewsTool
 from agents import PlannerAgent, ExecutorAgent, VerifierAgent
 
-# Load environment variables
 load_dotenv()
 
-# Initialize FastAPI app
 app = FastAPI(
     title="AI Operations Assistant",
     description="Multi-agent AI system for task automation with Google Gemini LLM and API integrations",
     version="1.0.0"
 )
 
-# Add CORS middleware
+# CORS - needed this for frontend testing
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -32,7 +30,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize components
+# Set up all the components - LLM client, tools, and agents
 try:
     llm_client = LLMClient()
     tools = [GitHubTool(), WeatherTool(), NewsTool()]
@@ -46,9 +44,7 @@ except Exception as e:
     raise
 
 
-# Request/Response models
 class TaskRequest(BaseModel):
-    """Request model for task execution"""
     task: str
     
     class Config:
@@ -60,7 +56,6 @@ class TaskRequest(BaseModel):
 
 
 class TaskResponse(BaseModel):
-    """Response model for task execution"""
     task_summary: str
     status: str
     results: Dict[str, Any]
@@ -70,7 +65,7 @@ class TaskResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    """Root endpoint with API information"""
+    """Basic info endpoint - shows what this API can do"""
     return {
         "name": "AI Operations Assistant",
         "version": "1.0.0",
@@ -92,7 +87,7 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint"""
+    """Quick health check - useful for monitoring"""
     return {
         "status": "healthy",
         "agents": ["planner", "executor", "verifier"],
@@ -103,7 +98,7 @@ async def health_check():
 
 @app.get("/tools")
 async def list_tools():
-    """List available tools and their descriptions"""
+    """Shows all available tools and what they can do"""
     return {
         "tools": [
             {
@@ -119,33 +114,30 @@ async def list_tools():
 @app.post("/execute", response_model=TaskResponse)
 async def execute_task(request: TaskRequest):
     """
-    Execute a natural language task using multi-agent system
-    
-    Flow:
-    1. Planner Agent creates execution plan
-    2. Executor Agent runs each step
-    3. Verifier Agent validates and formats results
+    Main endpoint - this is where the magic happens
+    Takes a natural language task and runs it through our agent pipeline
     """
     try:
-        # Step 1: Planning
+        # First, let the planner figure out what to do
         print(f"\n[PLANNER] Creating execution plan for: {request.task}")
         plan = planner.create_plan(request.task)
         print(f"[PLANNER] Created plan with {len(plan.steps)} steps")
         
-        # Step 2: Execution
+        # Now execute each step
         print(f"\n[EXECUTOR] Executing {len(plan.steps)} steps...")
         step_results = executor.execute_plan(plan)
         
+        # Log each step result
         for i, result in enumerate(step_results, 1):
             status = "✓" if result.success else "✗"
             print(f"[EXECUTOR] Step {i}/{len(plan.steps)} {status}: {result.step.description}")
         
-        # Step 3: Verification
+        # Finally, verify and format the output
         print(f"\n[VERIFIER] Verifying results and formatting output...")
         final_output = verifier.verify_and_format(plan, step_results)
         print(f"[VERIFIER] Status: {final_output.status}, Quality: {final_output.metadata['quality_score']}/10")
         
-        # Prepare response
+        # Build the response
         response = TaskResponse(
             task_summary=final_output.task_summary,
             status=final_output.status,

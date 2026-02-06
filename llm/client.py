@@ -1,5 +1,6 @@
 """
-LLM Client for Google Gemini integration with structured outputs
+Google Gemini client - handles all LLM calls
+Supports structured JSON outputs using Pydantic models
 """
 import os
 import json
@@ -10,7 +11,7 @@ from pydantic import BaseModel
 
 
 class LLMClient:
-    """Wrapper for Google Gemini API with structured output support"""
+    """Wraps the Gemini API - makes it easy to get structured JSON responses"""
     
     def __init__(self):
         api_key = os.getenv("GEMINI_API_KEY")
@@ -18,7 +19,7 @@ class LLMClient:
             raise ValueError("GEMINI_API_KEY environment variable is required")
         
         self.client = genai.Client(api_key=api_key)
-        self.model_name = "models/gemini-flash-latest"  # Latest free tier model with good quota
+        self.model_name = "models/gemini-flash-latest"  # Using the free tier model
     
     def generate_structured_output(
         self,
@@ -28,28 +29,19 @@ class LLMClient:
         temperature: float = 0.7
     ) -> Dict[str, Any]:
         """
-        Generate structured output from LLM
-        
-        Args:
-            prompt: User prompt
-            system_prompt: System instructions
-            response_format: Pydantic model for structured output
-            temperature: Sampling temperature
-            
-        Returns:
-            Parsed JSON response
+        Main method for getting structured JSON from the LLM
+        Pass in a Pydantic model and it'll return data matching that schema
         """
         try:
-            # Combine system and user prompts
             full_prompt = f"{system_prompt}\n\n{prompt}"
             
-            # If we have a response format, add JSON schema instructions
+            # Add JSON schema to the prompt if we want structured output
             if response_format:
                 schema = response_format.model_json_schema()
                 full_prompt += f"\n\nYou MUST respond with valid JSON matching this schema:\n{json.dumps(schema, indent=2)}"
                 full_prompt += "\n\nRespond ONLY with the JSON object, no additional text."
             
-            # Generate response
+            # Call Gemini
             response = self.client.models.generate_content(
                 model=self.model_name,
                 contents=full_prompt,
@@ -61,10 +53,9 @@ class LLMClient:
                 )
             )
             
-            # Extract text
             response_text = response.text.strip()
             
-            # Clean up markdown code blocks if present
+            # Sometimes Gemini wraps JSON in markdown code blocks, so clean that up
             if response_text.startswith("```json"):
                 response_text = response_text[7:]
             if response_text.startswith("```"):
@@ -73,18 +64,18 @@ class LLMClient:
                 response_text = response_text[:-3]
             response_text = response_text.strip()
             
-            # Parse JSON
+            # Parse the JSON
             try:
                 result = json.loads(response_text)
                 
-                # Validate against Pydantic model if provided
+                # Validate it matches our Pydantic model if we have one
                 if response_format:
                     validated = response_format(**result)
                     return validated.model_dump()
                 
                 return result
             except json.JSONDecodeError as e:
-                # If JSON parsing fails, try to extract JSON from text
+                # Fallback: try to extract JSON from the text using regex
                 import re
                 json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
                 if json_match:
@@ -104,17 +95,7 @@ class LLMClient:
         system_prompt: str = "You are a helpful AI assistant.",
         temperature: float = 0.7
     ) -> str:
-        """
-        Generate plain text output from LLM
-        
-        Args:
-            prompt: User prompt
-            system_prompt: System instructions
-            temperature: Sampling temperature
-            
-        Returns:
-            Generated text
-        """
+        """Simple text generation - no structured output"""
         try:
             full_prompt = f"{system_prompt}\n\n{prompt}"
             
@@ -132,3 +113,4 @@ class LLMClient:
             return response.text
         except Exception as e:
             raise Exception(f"LLM generation failed: {str(e)}")
+
